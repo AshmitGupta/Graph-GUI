@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modern File Upload with Preview</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        .upload-container {
+            background-color: white;
+            padding: 50px;
+            border-radius: 15px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            width: 400px;
+        }
+
+        .upload-container h1 {
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        .upload-area {
+            border: 2px dashed #007BFF;
+            padding: 30px;
+            border-radius: 10px;
+            transition: background-color 0.3s;
+            cursor: pointer;
+        }
+
+        .upload-area.dragging {
+            background-color: #e2f2ff;
+        }
+
+        .upload-area p {
+            margin: 0;
+            color: #555;
+        }
+
+        .file-name {
+            margin-top: 10px;
+            color: #007BFF;
+            font-weight: bold;
+        }
+
+        .submit-btn {
+            margin-top: 20px;
+            padding: 10px 20px;
+            background-color: #007BFF;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .submit-btn:hover {
+            background-color: #0056b3;
+        }
+
+        .flash-message {
+            margin-top: 20px;
+            color: #28a745;
+        }
+
+        /* Preview box styling */
+        .preview-box {
+            margin-top: 20px;
+            border: 1px solid #ddd;
+            padding: 10px;
+            max-height: 300px;
+            overflow-y: auto;
+            text-align: left;
+            background-color: #f9f9f9;
+        }
+
+        .preview-box pre {
+            font-size: 12px;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="upload-container">
+        <h1>Upload your XML File</h1>
+        <% if (typeof msg !== 'undefined') { %>
+            <p class="flash-message"><%= msg %></p>
+        <% } %>
+        <form id="uploadForm" action="/upload" method="POST" enctype="multipart/form-data">
+            <input type="file" name="file" id="fileInput" class="file-input" accept=".xml">
+            <div class="upload-area" id="uploadArea">
+                <p>Drag & drop your file here or click to browse</p>
+            </div>
+            <div id="fileName" class="file-name"></div>
+            <button type="submit" class="submit-btn">Upload</button>
+        </form>
+
+        <!-- Preview container -->
+        <div class="preview-box" id="previewBox" style="display: none;">
+            <h4>File Preview:</h4>
+            <pre id="filePreview"></pre>
+        </div>
+    </div>
+
+    <script>
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const fileNameDiv = document.getElementById('fileName');
+        const previewBox = document.getElementById('previewBox');
+        const filePreview = document.getElementById('filePreview');
+
+        uploadArea.addEventListener('click', () => fileInput.click());
+
+        fileInput.addEventListener('change', () => {
+            const file = fileInput.files[0];
+            const fileName = file.name;
+            fileNameDiv.textContent = `Selected file: ${fileName}`;
+
+            // Check if the file is an XML
+            if (file && file.type === "text/xml") {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const fileContent = e.target.result;
+                    // Display the file preview in the preview box
+                    filePreview.textContent = fileContent;
+                    previewBox.style.display = 'block';
+                };
+                reader.readAsText(file);
+            } else {
+                // If the file is not an XML, hide the preview
+                previewBox.style.display = 'none';
+            }
+        });
+
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragging');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragging');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragging');
+            const files = e.dataTransfer.files;
+            fileInput.files = files;
+            const file = files[0];
+            const fileName = file.name;
+            fileNameDiv.textContent = `Selected file: ${fileName}`;
+
+            // Check if the file is an XML
+            if (file && file.type === "text/xml") {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const fileContent = e.target.result;
+                    // Display the file preview in the preview box
+                    filePreview.textContent = fileContent;
+                    previewBox.style.display = 'block';
+                };
+                reader.readAsText(file);
+            } else {
+                // If the file is not an XML, hide the preview
+                previewBox.style.display = 'none';
+            }
+        });
+    </script>
+</body>
+</html>
