@@ -7,7 +7,7 @@ const neo4j = require('neo4j-driver');
 const app = express();
 
 // Neo4j Connection
-const driver = neo4j.driver('bolt://localhost:7687', neo4j.auth.basic('neo4j', 'your_password'));
+const driver = neo4j.driver('bolt://127.0.0.1:7687', neo4j.auth.basic('neo4j', 'password'));
 const session = driver.session();
 
 // Set storage engine for file uploads
@@ -93,15 +93,13 @@ app.post('/upload', (req, res) => {
     });
 });
 
-// Function to create nodes and relationships in Neo4j from XML data
 async function createGraphFromXML(xmlData) {
-    // Sample logic to create nodes/relationships in Neo4j
-    // Modify according to your XML structure
+    // Start a new session for each call to avoid using a closed session
+    const session = driver.session();
     const tx = session.beginTransaction();
     
     try {
         // Loop through XML elements and create nodes/relationships
-        // Assuming the XML has a simple structure with 'items' and each item has 'name' and 'value'
         if (xmlData.items && xmlData.items.item) {
             for (let item of xmlData.items.item) {
                 const name = item.name[0];
@@ -122,9 +120,11 @@ async function createGraphFromXML(xmlData) {
         await tx.rollback();
         throw error;
     } finally {
+        // Close the session after the transaction completes
         await session.close();
     }
 }
+
 
 // Start server
 const PORT = process.env.PORT || 5001;
