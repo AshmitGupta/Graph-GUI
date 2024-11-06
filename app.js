@@ -9,6 +9,16 @@ const app = express();
 // Neo4j Connection
 const driver = neo4j.driver('bolt://127.0.0.1:7687', neo4j.auth.basic('neo4j', 'password'));
 const session = driver.session();
+logMessage('Neo4j Connection established');
+
+// Array to store log messages
+let logMessages = [];
+
+// Function to add log messages
+function logMessage(message) {
+    console.log(message); // Logs to the terminal
+    logMessages.push(message); // Adds message to array
+}
 
 // Set storage engine for file uploads
 const storage = multer.diskStorage({
@@ -49,39 +59,47 @@ app.use(express.static('./public'));
 // Index route
 app.get('/', (req, res) => res.render('upload'));
 
+// Route to retrieve logs
+app.get('/logs', (req, res) => {
+    res.json(logMessages);
+});
+
 // Handle file upload and process XML to Neo4j
 app.post('/upload', (req, res) => {
     upload(req, res, (err) => {
         if (err) {
+            logMessage(err);
             res.render('upload', { msg: err });
         } else {
             if (req.file == undefined) {
-                res.render('upload', { msg: 'Error: No File Selected!' });
+                const msg = 'Error: No File Selected!';
+                logMessage(msg);
+                res.render('upload', { msg: msg });
             } else {
                 const xmlFilePath = `./uploads/${req.file.filename}`;
+                logMessage(`File uploaded: ${req.file.filename}`);
 
                 // Read the XML file
                 fs.readFile(xmlFilePath, 'utf-8', (err, data) => {
                     if (err) {
-                        console.error('Error reading XML file:', err);
+                        logMessage('Error reading XML file: ' + err);
                         res.render('upload', { msg: 'Error reading the XML file' });
                     } else {
                         // Parse the XML data
                         xml2js.parseString(data, (err, result) => {
                             if (err) {
-                                console.error('Error parsing XML:', err);
+                                logMessage('Error parsing XML: ' + err);
                                 res.render('upload', { msg: 'Error parsing the XML file' });
                             } else {
                                 // Process the XML to Neo4j
                                 createGraphFromXML(result)
                                     .then(() => {
-                                        res.render('upload', {
-                                            msg: 'File Uploaded and Graph Created!',
-                                            file: `uploads/${req.file.filename}`
-                                        });
+                                        const msg = 'File Uploaded and Graph Created!';
+                                        logMessage(msg);
+                                        res.render('upload', { msg: msg, file: `uploads/${req.file.filename}` });
                                     })
                                     .catch((error) => {
-                                        console.error('Error creating Neo4j graph:', error);
+                                        logMessage('Error creating Neo4j graph: ' + error);
                                         res.render('upload', { msg: 'Error creating Neo4j graph' });
                                     });
                             }
@@ -94,38 +112,34 @@ app.post('/upload', (req, res) => {
 });
 
 async function createGraphFromXML(xmlData) {
-    // Start a new session for each call to avoid using a closed session
     const session = driver.session();
     const tx = session.beginTransaction();
     
     try {
-        // Loop through XML elements and create nodes/relationships
         if (xmlData.items && xmlData.items.item) {
             for (let item of xmlData.items.item) {
                 const name = item.name[0];
                 const value = item.value[0];
 
-                // Create a node for each item in the XML
                 await tx.run(
                     'CREATE (n:Item {name: $name, value: $value}) RETURN n',
                     { name: name, value: value }
                 );
+                logMessage(`Created node with name: ${name}, value: ${value}`);
             }
         }
 
-        // Commit the transaction
         await tx.commit();
+        logMessage('Transaction committed');
     } catch (error) {
-        console.error('Error during Neo4j transaction:', error);
+        logMessage('Error during Neo4j transaction: ' + error);
         await tx.rollback();
         throw error;
     } finally {
-        // Close the session after the transaction completes
         await session.close();
     }
 }
 
-
 // Start server
 const PORT = process.env.PORT || 5001;
-app.listen(PORT, () => console.log(`Server started on port ${PORT}`));
+app.listen(PORT, () => logMessage(`Server started on port ${PORT}`));
