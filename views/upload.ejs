@@ -74,7 +74,6 @@
             color: #28a745;
         }
 
-        /* Preview box styling */
         .preview-box {
             margin-top: 20px;
             border: 1px solid #ddd;
@@ -106,10 +105,15 @@
             <button type="submit" class="submit-btn">Upload</button>
         </form>
 
-        <!-- Preview container -->
         <div class="preview-box" id="previewBox" style="display: none;">
             <h4>File Preview:</h4>
             <pre id="filePreview"></pre>
+        </div>
+
+        <!-- Log Messages Container -->
+        <div id="logMessages" class="preview-box" style="display: none;">
+            <h4>Log Messages:</h4>
+            <pre id="logContent"></pre>
         </div>
     </div>
 
@@ -119,6 +123,8 @@
         const fileNameDiv = document.getElementById('fileName');
         const previewBox = document.getElementById('previewBox');
         const filePreview = document.getElementById('filePreview');
+        const logMessagesDiv = document.getElementById('logMessages');
+        const logContent = document.getElementById('logContent');
 
         uploadArea.addEventListener('click', () => fileInput.click());
 
@@ -127,18 +133,15 @@
             const fileName = file.name;
             fileNameDiv.textContent = `Selected file: ${fileName}`;
 
-            // Check if the file is an XML
             if (file && file.type === "text/xml") {
                 const reader = new FileReader();
                 reader.onload = function(e) {
                     const fileContent = e.target.result;
-                    // Display the file preview in the preview box
                     filePreview.textContent = fileContent;
                     previewBox.style.display = 'block';
                 };
                 reader.readAsText(file);
             } else {
-                // If the file is not an XML, hide the preview
                 previewBox.style.display = 'none';
             }
         });
@@ -161,21 +164,31 @@
             const fileName = file.name;
             fileNameDiv.textContent = `Selected file: ${fileName}`;
 
-            // Check if the file is an XML
             if (file && file.type === "text/xml") {
                 const reader = new FileReader();
                 reader.onload = function(e) {
                     const fileContent = e.target.result;
-                    // Display the file preview in the preview box
                     filePreview.textContent = fileContent;
                     previewBox.style.display = 'block';
                 };
                 reader.readAsText(file);
             } else {
-                // If the file is not an XML, hide the preview
                 previewBox.style.display = 'none';
             }
         });
+
+        // Fetch and display log messages
+        function fetchLogs() {
+            fetch('/logs')
+                .then(response => response.json())
+                .then(data => {
+                    logContent.textContent = data.join('\n');
+                    logMessagesDiv.style.display = 'block';
+                })
+                .catch(err => console.error('Error fetching logs:', err));
+        }
+
+        setInterval(fetchLogs, 2000); // Fetch logs every 2 seconds
     </script>
 </body>
 </html>
