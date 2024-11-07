@@ -2,18 +2,8 @@
 const neo4j = require('neo4j-driver');
 const xml2js = require('xml2js');
 
-// Function to add log messages
-function logMessage(message, socket = null) {
-    console.log(message); // Logs to the terminal
-    if (socket) {
-        socket.emit('log', message); // Emit log message to the client
-    }
-}
-
-async function createGraphFromXML(xmlData, socket, registration, driver) {
-    // Set to keep track of processed nodes to avoid duplicate creation/connection
+async function createGraphFromXML(xmlData, registration, driver, logCallback, progressCallback) {
     const processedNodes = new Set();
-
     const session = driver.session();
 
     const uniqueLabel = 'Batch_' + new Date().toISOString().slice(0, 10).replace(/-/g, '_');
@@ -25,20 +15,20 @@ async function createGraphFromXML(xmlData, socket, registration, driver) {
         let docNumber = 'ServiceBulletin';
         if (result && result.AirplaneSB && result.AirplaneSB.$ && result.AirplaneSB.$.docnbr) {
             docNumber = result.AirplaneSB.$.docnbr;
-            logMessage(`Found docnbr: ${docNumber}`, socket);
+            logCallback(`Found docnbr: ${docNumber}`);
         } else {
-            logMessage('No docnbr attribute found; defaulting to "ServiceBulletin"', socket);
+            logCallback('No docnbr attribute found; defaulting to "ServiceBulletin"');
         }
 
-        logMessage(`Creating Service Bulletin node with docnbr "${docNumber}" and label "${uniqueLabel}"`, socket);
+        logCallback(`Creating Service Bulletin node with docnbr "${docNumber}" and label "${uniqueLabel}"`);
         await session.writeTransaction(tx => tx.run(
             `MERGE (sb:ServiceBulletin:\`${uniqueLabel}\` {name: $docnbr, content: '000', docnbr: $docnbr})`,
             { docnbr: docNumber }
         ));
-        logMessage('Service Bulletin node created.', socket);
+        logCallback('Service Bulletin node created.');
 
         // Use the registration provided by the user
-        logMessage(`Using registration: "${registration}"`, socket);
+        logCallback(`Using registration: "${registration}"`);
 
         // Connect the Service Bulletin to the matching Aircraft node
         await session.writeTransaction(tx => tx.run(
@@ -46,7 +36,7 @@ async function createGraphFromXML(xmlData, socket, registration, driver) {
             MERGE (sb)-[:APPLIES_TO]->(ac)`,
             { docnbr: docNumber, registration: registration }
         ));
-        logMessage(`Connected Service Bulletin "${docNumber}" to Aircraft with registration "${registration}".`, socket);
+        logCallback(`Connected Service Bulletin "${docNumber}" to Aircraft with registration "${registration}".`);
 
         function sanitizeRelationship(label) {
             return label.replace(/[^a-zA-Z0-9]/g, '_').toUpperCase();
@@ -126,59 +116,59 @@ async function createGraphFromXML(xmlData, socket, registration, driver) {
                         const titleNodeLabel = formatNodeLabel(sanitizedRelationship);
                         const nodeName = titleNodeLabel;
 
-                        logMessage(`Gathering content for "${titleNodeLabel}"`, socket);
+                        logCallback(`Gathering content for "${titleNodeLabel}"`);
                         const concatenatedContent = gatherContent(obj);
 
                         const uniqueKey = `${nodeName}-${concatenatedContent.trim()}`;
                         if (processedNodes.has(uniqueKey)) {
-                            logMessage(`Node "${titleNodeLabel}" with content already processed, skipping.`, socket);
+                            logCallback(`Node "${titleNodeLabel}" with content already processed, skipping.`);
                             continue;
                         }
 
                         processedNodes.add(uniqueKey);
 
-                        logMessage(`Creating TITLE node for "${titleNodeLabel}" with label "${uniqueLabel}"`, socket);
+                        logCallback(`Creating TITLE node for "${titleNodeLabel}" with label "${uniqueLabel}"`);
                         await session.writeTransaction(tx => tx.run(
                             `MERGE (n:\`${titleNodeLabel}\`:\`${uniqueLabel}\` {name: $name, docnbr: $docnbr})`,
                             { name: nodeName, docnbr: docNumber }
                         ));
-                        logMessage(`TITLE node "${titleNodeLabel}" created.`, socket);
+                        logCallback(`TITLE node "${titleNodeLabel}" created.`);
 
                         if (!parentTitleNode) {
-                            logMessage(`Connecting TITLE "${titleNodeLabel}" to Service Bulletin`, socket);
+                            logCallback(`Connecting TITLE "${titleNodeLabel}" to Service Bulletin`);
                             await session.writeTransaction(tx => tx.run(
                                 `MATCH (sb:ServiceBulletin:\`${uniqueLabel}\` {docnbr: $sbDocNbr}), (child:\`${titleNodeLabel}\`:\`${uniqueLabel}\` {name: $childName, docnbr: $docnbr})
                                 MERGE (sb)-[:HAS_${sanitizedRelationship}]->(child)`,
                                 { sbDocNbr: docNumber, childName: nodeName, docnbr: docNumber }
                             ));
-                            logMessage(`Connected "${titleNodeLabel}" to Service Bulletin.`, socket);
+                            logCallback(`Connected "${titleNodeLabel}" to Service Bulletin.`);
                         } else {
                             const dynamicRelationship = `HAS_${sanitizedRelationship}`;
-                            logMessage(`Connecting TITLE "${parentNodeLabel}" to child TITLE "${titleNodeLabel}" with relationship "${dynamicRelationship}"`, socket);
+                            logCallback(`Connecting TITLE "${parentNodeLabel}" to child TITLE "${titleNodeLabel}" with relationship "${dynamicRelationship}"`);
                             await session.writeTransaction(tx => tx.run(
                                 `MATCH (parent:\`${parentNodeLabel}\`:\`${uniqueLabel}\` {name: $parentName, docnbr: $docnbr}), (child:\`${titleNodeLabel}\`:\`${uniqueLabel}\` {name: $childName, docnbr: $docnbr})
                                 MERGE (parent)-[:${dynamicRelationship}]->(child)`,
                                 { parentName: parentNodeLabel, childName: nodeName, docnbr: docNumber }
                             ));
-                            logMessage(`Connected "${parentNodeLabel}" to "${titleNodeLabel}" with "${dynamicRelationship}".`, socket);
+                            logCallback(`Connected "${parentNodeLabel}" to "${titleNodeLabel}" with "${dynamicRelationship}".`);
                         }
 
                         const cleanedContent = concatenatedContent.replace(/<ColSpec\s*\/>/g, '');
 
-                        logMessage(`Content for "${titleNodeLabel}" gathered: "${cleanedContent}"`, socket);
+                        logCallback(`Content for "${titleNodeLabel}" gathered: "${cleanedContent}"`);
                         await session.writeTransaction(tx => tx.run(
                             `MATCH (n:\`${titleNodeLabel}\`:\`${uniqueLabel}\` {name: $name, docnbr: $docnbr})
                             SET n.content = $content`,
                             { name: nodeName, content: cleanedContent, docnbr: docNumber }
                         ));
-                        logMessage(`Updated content for "${titleNodeLabel}".`, socket);
+                        logCallback(`Updated content for "${titleNodeLabel}".`);
 
                         // Update processed nodes count and emit progress
                         processedNodesCount += 1;
                         const progress = Math.round((processedNodesCount / totalNodes) * 100);
-                        socket.emit('progress', { progress });
+                        progressCallback(progress);
 
-                        logMessage(`Processing nested content for "${titleNodeLabel}"...`, socket);
+                        logCallback(`Processing nested content for "${titleNodeLabel}"...`);
                         await createTitleNodesAndRelationships(titleNodeLabel, titleNodeLabel, obj);
                     }
 
@@ -189,19 +179,19 @@ async function createGraphFromXML(xmlData, socket, registration, driver) {
             }
         }
 
-        logMessage('Starting graph creation process...', socket);
+        logCallback('Starting graph creation process...');
         const rootKey = Object.keys(result)[0];
         const rootObj = result[rootKey];
 
         // Begin processing
         await createTitleNodesAndRelationships(null, null, rootObj);
 
-        logMessage('Graph created successfully with docnbr property: ' + docNumber, socket);
+        logCallback('Graph created successfully with docnbr property: ' + docNumber);
 
         // Emit 100% progress when done
-        socket.emit('progress', { progress: 100 });
+        progressCallback(100);
     } catch (error) {
-        logMessage('Error creating graph: ' + error, socket);
+        logCallback('Error creating graph: ' + error);
         throw error;
     } finally {
         await session.close();
