@@ -1,176 +1,264 @@
-// new-converter.js
-const neo4j = require('neo4j-driver');
-const xml2js = require('xml2js');
-
-async function createGraphFromXML(xmlData, registration, driver) {
-    const logs = [];
-
-    function logMessage(message) {
-        console.log(message);
-        logs.push(message);
-    }
-
-    const processedNodes = new Set();
-    const session = driver.session();
-
-    const uniqueLabel = 'Batch_' + new Date().toISOString().slice(0, 10).replace(/-/g, '_');
-
-    try {
-        const parser = new xml2js.Parser({ explicitArray: false, trim: true });
-        const result = await parser.parseStringPromise(xmlData);
-
-        let docNumber = 'ServiceBulletin';
-        if (result && result.AirplaneSB && result.AirplaneSB.$ && result.AirplaneSB.$.docnbr) {
-            docNumber = result.AirplaneSB.$.docnbr;
-            logMessage(`Found docnbr: ${docNumber}`);
-        } else {
-            logMessage('No docnbr attribute found; defaulting to "ServiceBulletin"');
+<!-- upload.ejs -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>XML File Upload</title>
+    <style>
+        /* Styles */
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(to right, #6a11cb, #2575fc);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden; /* Prevent scrollbars */
+            margin: 0;
         }
 
-        logMessage(`Creating Service Bulletin node with docnbr "${docNumber}" and label "${uniqueLabel}"`);
-        await session.writeTransaction(tx => tx.run(
-            `MERGE (sb:ServiceBulletin:\`${uniqueLabel}\` {name: $docnbr, content: '000', docnbr: $docnbr})`,
-            { docnbr: docNumber }
-        ));
-        logMessage('Service Bulletin node created.');
-
-        // Use the registration provided by the user
-        logMessage(`Using registration: "${registration}"`);
-
-        // Connect the Service Bulletin to the matching Aircraft node
-        await session.writeTransaction(tx => tx.run(
-            `MATCH (sb:ServiceBulletin {docnbr: $docnbr}), (ac:Aircraft {registration: $registration})
-            MERGE (sb)-[:APPLIES_TO]->(ac)`,
-            { docnbr: docNumber, registration: registration }
-        ));
-        logMessage(`Connected Service Bulletin "${docNumber}" to Aircraft with registration "${registration}".`);
-
-        function sanitizeRelationship(label) {
-            return label.replace(/[^a-zA-Z0-9]/g, '_').toUpperCase();
+        /* Main container to hold both the upload form and log messages */
+        .main-container {
+            display: flex;
+            background-color: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            width: 800px;
+            max-height: 90vh;
+            overflow: hidden;
         }
 
-        function formatNodeLabel(label) {
-            return label
-                .replace(/^HAS_/, '')
-                .toLowerCase()
-                .split('_')
-                .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-                .join('_');
+        /* Upload form styles */
+        .upload-container {
+            padding: 30px;
+            width: 50%;
+            overflow-y: auto;
+            box-sizing: border-box;
         }
 
-        function gatherContent(node) {
-            let content = '';
+        /* Log messages container styles */
+        .log-container {
+            padding: 30px;
+            width: 50%;
+            background-color: #2d2d2d;
+            color: #dcdcdc;
+            overflow-y: auto;
+            box-sizing: border-box;
+        }
 
-            function handleTableNode(tableNode) {
-                const builder = new xml2js.Builder({ headless: true, renderOpts: { pretty: false }, xmldec: { version: '1.0', encoding: 'UTF-8' } });
+        .upload-container h1, .log-container h1 {
+            margin-top: 0;
+        }
 
-                const sanitizedTable = JSON.parse(JSON.stringify(tableNode, (key, value) => (key.startsWith('$') ? undefined : value)));
+        .log-container h1 {
+            color: #fff;
+        }
 
-                if (sanitizedTable.TABLE && Array.isArray(sanitizedTable.TABLE.ColSpec)) {
-                    delete sanitizedTable.TABLE.ColSpec;
-                }
+        .file-input {
+            display: none;
+        }
 
-                return builder.buildObject({ TABLE: sanitizedTable.TABLE }).trim();
+        .upload-area {
+            border: 2px dashed #007BFF;
+            padding: 30px;
+            border-radius: 10px;
+            transition: background-color 0.3s;
+            cursor: pointer;
+        }
+
+        .upload-area.dragging {
+            background-color: #e2f2ff;
+        }
+
+        .upload-area p {
+            margin: 0;
+            color: #555;
+        }
+
+        .file-name {
+            margin-top: 10px;
+            color: #007BFF;
+            font-weight: bold;
+            word-wrap: break-word;
+        }
+
+        .submit-btn {
+            margin-top: 20px;
+            padding: 10px 20px;
+            background-color: #28a745;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .submit-btn:hover {
+            background-color: #218838;
+        }
+
+        .flash-message {
+            margin-top: 20px;
+            color: #28a745;
+        }
+
+        .preview-box {
+            margin-top: 20px;
+            border: 1px solid #ddd;
+            padding: 10px;
+            max-height: 200px;
+            overflow-y: auto;
+            text-align: left;
+            background-color: #f9f9f9;
+        }
+
+        .preview-box pre {
+            font-size: 12px;
+            color: #333;
+        }
+
+        /* Log Messages Styles */
+        .log-messages {
+            margin-top: 0;
+            padding: 0;
+            max-height: 100%;
+            overflow-y: auto;
+            text-align: left;
+            font-family: Consolas, monospace;
+            font-size: 12px;
+            white-space: pre-wrap; /* Preserve formatting */
+            word-wrap: break-word; /* Break long words */
+        }
+
+        .log-messages p {
+            margin: 0;
+        }
+
+        /* Registration input field styles */
+        .input-field {
+            margin-top: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+        }
+
+        .input-field label {
+            margin-bottom: 5px;
+            color: #555;
+        }
+
+        .input-field input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+
+        .input-field input:focus {
+            outline: none;
+            border-color: #007BFF;
+        }
+    </style>
+</head>
+<body>
+    <div class="main-container">
+        <!-- Upload Form Container -->
+        <div class="upload-container">
+            <h1>Upload your XML File</h1>
+            <% if (typeof msg !== 'undefined') { %>
+                <p class="flash-message"><%= msg %></p>
+            <% } %>
+            <form id="uploadForm" action="/upload" method="POST" enctype="multipart/form-data">
+                <input type="file" name="file" id="fileInput" class="file-input" accept=".xml">
+                <div class="upload-area" id="uploadArea">
+                    <p>Drag & drop your file here or click to browse</p>
+                </div>
+                <div id="fileName" class="file-name"></div>
+
+                <!-- Registration Input Field -->
+                <div class="input-field">
+                    <label for="registration">Aircraft Registration:</label>
+                    <input type="text" name="registration" id="registration" required placeholder="Enter registration">
+                </div>
+
+                <button type="submit" class="submit-btn">Upload</button>
+            </form>
+
+            <div class="preview-box" id="previewBox" style="display: none;">
+                <h4>File Preview:</h4>
+                <pre id="filePreview"></pre>
+            </div>
+        </div>
+
+        <!-- Log Messages Container -->
+        <div class="log-container">
+            <h1>Log Messages</h1>
+            <div id="logMessages" class="log-messages">
+                <% if (typeof logs !== 'undefined') { %>
+                    <% logs.forEach(function(log) { %>
+                        <p><%= log %></p>
+                    <% }); %>
+                <% } %>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const fileNameDiv = document.getElementById('fileName');
+        const previewBox = document.getElementById('previewBox');
+        const filePreview = document.getElementById('filePreview');
+
+        uploadArea.addEventListener('click', () => fileInput.click());
+
+        fileInput.addEventListener('change', () => {
+            const file = fileInput.files[0];
+            const fileName = file.name;
+            fileNameDiv.textContent = `Selected file: ${fileName}`;
+
+            if (file && file.type === "text/xml") {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const fileContent = e.target.result;
+                    filePreview.textContent = fileContent;
+                    previewBox.style.display = 'block';
+                };
+                reader.readAsText(file);
+            } else {
+                previewBox.style.display = 'none';
             }
+        });
 
-            for (const key in node) {
-                if (node.hasOwnProperty(key)) {
-                    if (key.toUpperCase() === 'TABLE') {
-                        content += handleTableNode({ TABLE: node[key] });
-                    } else if (typeof node[key] === 'string' && !key.startsWith('$')) {
-                        content += node[key] + ' ';
-                    } else if (typeof node[key] === 'object' && !key.startsWith('$')) {
-                        content += gatherContent(node[key]);
-                    }
-                }
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragging');
+        });
+
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragging');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragging');
+            const files = e.dataTransfer.files;
+            fileInput.files = files;
+            const file = files[0];
+            const fileName = file.name;
+            fileNameDiv.textContent = `Selected file: ${fileName}`;
+
+            if (file && file.type === "text/xml") {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const fileContent = e.target.result;
+                    filePreview.textContent = fileContent;
+                    previewBox.style.display = 'block';
+                };
+                reader.readAsText(file);
+            } else {
+                previewBox.style.display = 'none';
             }
-
-            return content.trim();
-        }
-
-        async function createTitleNodesAndRelationships(parentTitleNode, parentNodeLabel, obj) {
-            for (const key in obj) {
-                if (obj.hasOwnProperty(key)) {
-                    if (key.toUpperCase() === 'TITLE') {
-                        const titleContent = obj[key];
-                        const sanitizedRelationship = sanitizeRelationship(titleContent);
-                        const titleNodeLabel = formatNodeLabel(sanitizedRelationship);
-                        const nodeName = titleNodeLabel;
-
-                        logMessage(`Gathering content for "${titleNodeLabel}"`);
-                        const concatenatedContent = gatherContent(obj);
-
-                        const uniqueKey = `${nodeName}-${concatenatedContent.trim()}`;
-                        if (processedNodes.has(uniqueKey)) {
-                            logMessage(`Node "${titleNodeLabel}" with content already processed, skipping.`);
-                            continue;
-                        }
-
-                        processedNodes.add(uniqueKey);
-
-                        logMessage(`Creating TITLE node for "${titleNodeLabel}" with label "${uniqueLabel}"`);
-                        await session.writeTransaction(tx => tx.run(
-                            `MERGE (n:\`${titleNodeLabel}\`:\`${uniqueLabel}\` {name: $name, docnbr: $docnbr})`,
-                            { name: nodeName, docnbr: docNumber }
-                        ));
-                        logMessage(`TITLE node "${titleNodeLabel}" created.`);
-
-                        if (!parentTitleNode) {
-                            logMessage(`Connecting TITLE "${titleNodeLabel}" to Service Bulletin`);
-                            await session.writeTransaction(tx => tx.run(
-                                `MATCH (sb:ServiceBulletin:\`${uniqueLabel}\` {docnbr: $sbDocNbr}), (child:\`${titleNodeLabel}\`:\`${uniqueLabel}\` {name: $childName, docnbr: $docnbr})
-                                MERGE (sb)-[:HAS_${sanitizedRelationship}]->(child)`,
-                                { sbDocNbr: docNumber, childName: nodeName, docnbr: docNumber }
-                            ));
-                            logMessage(`Connected "${titleNodeLabel}" to Service Bulletin.`);
-                        } else {
-                            const dynamicRelationship = `HAS_${sanitizedRelationship}`;
-                            logMessage(`Connecting TITLE "${parentNodeLabel}" to child TITLE "${titleNodeLabel}" with relationship "${dynamicRelationship}"`);
-                            await session.writeTransaction(tx => tx.run(
-                                `MATCH (parent:\`${parentNodeLabel}\`:\`${uniqueLabel}\` {name: $parentName, docnbr: $docnbr}), (child:\`${titleNodeLabel}\`:\`${uniqueLabel}\` {name: $childName, docnbr: $docnbr})
-                                MERGE (parent)-[:${dynamicRelationship}]->(child)`,
-                                { parentName: parentNodeLabel, childName: nodeName, docnbr: docNumber }
-                            ));
-                            logMessage(`Connected "${parentNodeLabel}" to "${titleNodeLabel}" with "${dynamicRelationship}".`);
-                        }
-
-                        const cleanedContent = concatenatedContent.replace(/<ColSpec\s*\/>/g, '');
-
-                        logMessage(`Content for "${titleNodeLabel}" gathered: "${cleanedContent}"`);
-                        await session.writeTransaction(tx => tx.run(
-                            `MATCH (n:\`${titleNodeLabel}\`:\`${uniqueLabel}\` {name: $name, docnbr: $docnbr})
-                            SET n.content = $content`,
-                            { name: nodeName, content: cleanedContent, docnbr: docNumber }
-                        ));
-                        logMessage(`Updated content for "${titleNodeLabel}".`);
-
-                        logMessage(`Processing nested content for "${titleNodeLabel}"...`);
-                        await createTitleNodesAndRelationships(titleNodeLabel, titleNodeLabel, obj);
-                    }
-
-                    if (typeof obj[key] === 'object' && key.toUpperCase() !== 'TITLE') {
-                        await createTitleNodesAndRelationships(parentTitleNode, parentNodeLabel, obj[key]);
-                    }
-                }
-            }
-        }
-
-        logMessage('Starting graph creation process...');
-        const rootKey = Object.keys(result)[0];
-        const rootObj = result[rootKey];
-
-        // Begin processing
-        await createTitleNodesAndRelationships(null, null, rootObj);
-
-        logMessage('Graph created successfully with docnbr property: ' + docNumber);
-
-        return logs;
-    } catch (error) {
-        logMessage('Error creating graph: ' + error);
-        throw error;
-    } finally {
-        await session.close();
-    }
-}
-
-module.exports = { createGraphFromXML };
+        });
+    </script>
+</body>
+</html>
