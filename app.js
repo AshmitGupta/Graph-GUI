@@ -1,4 +1,3 @@
-// app.js
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
@@ -71,8 +70,6 @@ app.get('/', (req, res) => res.render('upload'));
 // Socket.IO connection
 io.on('connection', (socket) => {
     console.log(`A user connected: ${socket.id}`);
-
-    // Store the socket in the map
     clientSockets.set(socket.id, socket);
 
     socket.on('disconnect', () => {
@@ -114,11 +111,6 @@ app.post('/upload', (req, res) => {
                                 driver,
                                 (message) => { // logCallback
                                     logMessage(message, socket);
-                                },
-                                (progress) => { // progressCallback
-                                    if (socket) {
-                                        socket.emit('progress', { progress });
-                                    }
                                 }
                             );
                             const msg = 'File Uploaded and Graph Created!';
