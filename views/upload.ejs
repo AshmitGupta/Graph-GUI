@@ -1,3 +1,4 @@
+<!-- upload.ejs -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -12,6 +13,7 @@
             align-items: center;
             height: 100vh;
             overflow: hidden; /* Prevent scrollbars */
+            margin: 0;
         }
 
         /* Main container to hold both the upload form and log messages */
@@ -76,6 +78,7 @@
             margin-top: 10px;
             color: #007BFF;
             font-weight: bold;
+            word-wrap: break-word;
         }
 
         .submit-btn {
@@ -153,6 +156,8 @@
             text-align: left;
             font-family: Consolas, monospace;
             font-size: 12px;
+            white-space: pre-wrap; /* Preserve formatting */
+            word-wrap: break-word; /* Break long words */
         }
 
         .log-messages p {
@@ -233,7 +238,7 @@
     <!-- Include Socket.IO client library -->
     <script src="/socket.io/socket.io.js"></script>
     <script>
-        // JavaScript code remains mostly unchanged
+        // JavaScript code
         const uploadArea = document.getElementById('uploadArea');
         const fileInput = document.getElementById('fileInput');
         const fileNameDiv = document.getElementById('fileName');
@@ -327,6 +332,8 @@
 
         uploadForm.addEventListener('submit', (e) => {
             progressContainer.style.display = 'block';
+            progressBar.value = 0;
+            progressText.textContent = 'Processing: 0%';
             logMessagesDiv.innerHTML = ''; // Clear previous log messages
         });
     </script>
