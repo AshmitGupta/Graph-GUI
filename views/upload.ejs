@@ -1,31 +1,54 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Modern File Upload with Preview</title>
+    <!-- Meta tags and title remain unchanged -->
     <style>
+        /* Updated styles for modern design and log messages */
         body {
-            font-family: Arial, sans-serif;
-            background-color: #f0f0f0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(to right, #6a11cb, #2575fc);
             display: flex;
             justify-content: center;
             align-items: center;
             height: 100vh;
+            overflow: hidden; /* Prevent scrollbars */
         }
 
-        .upload-container {
-            background-color: white;
-            padding: 50px;
+        /* Main container to hold both the upload form and log messages */
+        .main-container {
+            display: flex;
+            background-color: rgba(255, 255, 255, 0.95);
             border-radius: 15px;
             box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
-            text-align: center;
-            width: 400px;
+            width: 800px;
+            max-height: 90vh;
+            overflow: hidden;
         }
 
-        .upload-container h1 {
-            margin-bottom: 20px;
-            color: #333;
+        /* Upload form styles */
+        .upload-container {
+            padding: 30px;
+            width: 50%;
+            overflow-y: auto;
+            box-sizing: border-box;
+        }
+
+        /* Log messages container styles */
+        .log-container {
+            padding: 30px;
+            width: 50%;
+            background-color: #2d2d2d;
+            color: #dcdcdc;
+            overflow-y: auto;
+            box-sizing: border-box;
+        }
+
+        .upload-container h1, .log-container h1 {
+            margin-top: 0;
+        }
+
+        .log-container h1 {
+            color: #fff;
         }
 
         .file-input {
@@ -58,7 +81,7 @@
         .submit-btn {
             margin-top: 20px;
             padding: 10px 20px;
-            background-color: #007BFF;
+            background-color: #28a745;
             color: white;
             border: none;
             border-radius: 5px;
@@ -66,7 +89,7 @@
         }
 
         .submit-btn:hover {
-            background-color: #0056b3;
+            background-color: #218838;
         }
 
         .flash-message {
@@ -78,7 +101,7 @@
             margin-top: 20px;
             border: 1px solid #ddd;
             padding: 10px;
-            max-height: 300px;
+            max-height: 200px;
             overflow-y: auto;
             text-align: left;
             background-color: #f9f9f9;
@@ -88,43 +111,168 @@
             font-size: 12px;
             color: #333;
         }
+
+        .progress-container {
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        progress {
+            width: 100%;
+            height: 20px;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        progress::-webkit-progress-bar {
+            background-color: #f3f3f3;
+            border-radius: 5px;
+        }
+
+        progress::-webkit-progress-value {
+            background-color: #007BFF;
+            border-radius: 5px;
+        }
+
+        progress::-moz-progress-bar {
+            background-color: #007BFF;
+            border-radius: 5px;
+        }
+
+        .progress-text {
+            margin-top: 10px;
+            color: #555;
+        }
+
+        /* Log Messages Styles */
+        .log-messages {
+            margin-top: 0;
+            padding: 0;
+            max-height: 100%;
+            overflow-y: auto;
+            text-align: left;
+            font-family: Consolas, monospace;
+            font-size: 12px;
+        }
+
+        .log-messages p {
+            margin: 0;
+        }
+
+        /* Registration input field styles */
+        .input-field {
+            margin-top: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+        }
+
+        .input-field label {
+            margin-bottom: 5px;
+            color: #555;
+        }
+
+        .input-field input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+
+        .input-field input:focus {
+            outline: none;
+            border-color: #007BFF;
+        }
     </style>
 </head>
 <body>
-    <div class="upload-container">
-        <h1>Upload your XML File</h1>
-        <% if (typeof msg !== 'undefined') { %>
-            <p class="flash-message"><%= msg %></p>
-        <% } %>
-        <form id="uploadForm" action="/upload" method="POST" enctype="multipart/form-data">
-            <input type="file" name="file" id="fileInput" class="file-input" accept=".xml">
-            <div class="upload-area" id="uploadArea">
-                <p>Drag & drop your file here or click to browse</p>
-            </div>
-            <div id="fileName" class="file-name"></div>
-            <button type="submit" class="submit-btn">Upload</button>
-        </form>
+    <div class="main-container">
+        <!-- Upload Form Container -->
+        <div class="upload-container">
+            <h1>Upload your XML File</h1>
+            <% if (typeof msg !== 'undefined') { %>
+                <p class="flash-message"><%= msg %></p>
+            <% } %>
+            <form id="uploadForm" action="/upload" method="POST" enctype="multipart/form-data">
+                <input type="hidden" name="socketId" id="socketId"> <!-- Hidden input for socket ID -->
+                <input type="file" name="file" id="fileInput" class="file-input" accept=".xml">
+                <div class="upload-area" id="uploadArea">
+                    <p>Drag & drop your file here or click to browse</p>
+                </div>
+                <div id="fileName" class="file-name"></div>
 
-        <div class="preview-box" id="previewBox" style="display: none;">
-            <h4>File Preview:</h4>
-            <pre id="filePreview"></pre>
+                <!-- Registration Input Field -->
+                <div class="input-field">
+                    <label for="registration">Aircraft Registration:</label>
+                    <input type="text" name="registration" id="registration" required placeholder="Enter registration">
+                </div>
+
+                <button type="submit" class="submit-btn">Upload</button>
+            </form>
+
+            <div class="progress-container" style="display: none;">
+                <progress id="progressBar" value="0" max="100"></progress>
+                <p id="progressText" class="progress-text">Processing: 0%</p>
+            </div>
+
+            <div class="preview-box" id="previewBox" style="display: none;">
+                <h4>File Preview:</h4>
+                <pre id="filePreview"></pre>
+            </div>
         </div>
 
         <!-- Log Messages Container -->
-        <div id="logMessages" class="preview-box" style="display: none;">
-            <h4>Log Messages:</h4>
-            <pre id="logContent"></pre>
+        <div class="log-container">
+            <h1>Log Messages</h1>
+            <div id="logMessages" class="log-messages">
+                <!-- Log messages will appear here -->
+            </div>
         </div>
     </div>
 
+    <!-- Include Socket.IO client library -->
+    <script src="/socket.io/socket.io.js"></script>
     <script>
+        // JavaScript code remains mostly unchanged
         const uploadArea = document.getElementById('uploadArea');
         const fileInput = document.getElementById('fileInput');
         const fileNameDiv = document.getElementById('fileName');
         const previewBox = document.getElementById('previewBox');
         const filePreview = document.getElementById('filePreview');
         const logMessagesDiv = document.getElementById('logMessages');
-        const logContent = document.getElementById('logContent');
+        const progressContainer = document.querySelector('.progress-container');
+        const progressBar = document.getElementById('progressBar');
+        const progressText = document.getElementById('progressText');
+        const uploadForm = document.getElementById('uploadForm');
+        const socketIdInput = document.getElementById('socketId');
+
+        // Establish Socket.IO connection
+        const socket = io();
+
+        socket.on('connect', () => {
+            console.log('Connected with socket ID:', socket.id);
+            socketIdInput.value = socket.id; // Set socket ID in the hidden input
+        });
+
+        socket.on('progress', (data) => {
+            const progress = data.progress;
+            progressBar.value = progress;
+            progressText.textContent = `Processing: ${progress}%`;
+
+            if (progress >= 100) {
+                progressText.textContent = `Processing complete!`;
+                setTimeout(() => {
+                    progressContainer.style.display = 'none';
+                }, 2000);
+            }
+        });
+
+        socket.on('log', (message) => {
+            const p = document.createElement('p');
+            p.textContent = message;
+            logMessagesDiv.appendChild(p);
+            logMessagesDiv.scrollTop = logMessagesDiv.scrollHeight; // Auto-scroll to the bottom
+        });
 
         uploadArea.addEventListener('click', () => fileInput.click());
 
@@ -177,18 +325,10 @@
             }
         });
 
-        // Fetch and display log messages
-        function fetchLogs() {
-            fetch('/logs')
-                .then(response => response.json())
-                .then(data => {
-                    logContent.textContent = data.join('\n');
-                    logMessagesDiv.style.display = 'block';
-                })
-                .catch(err => console.error('Error fetching logs:', err));
-        }
-
-        setInterval(fetchLogs, 2000); // Fetch logs every 2 seconds
+        uploadForm.addEventListener('submit', (e) => {
+            progressContainer.style.display = 'block';
+            logMessagesDiv.innerHTML = ''; // Clear previous log messages
+        });
     </script>
 </body>
 </html>
