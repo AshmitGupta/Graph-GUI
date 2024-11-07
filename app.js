@@ -1,3 +1,4 @@
+// app.js
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
@@ -38,7 +39,7 @@ const storage = multer.diskStorage({
 // Initialize upload
 const upload = multer({
     storage: storage,
-    limits: { fileSize: 10000000 }, // Increased file limit to 10MB for large XML files
+    limits: { fileSize: 100000000 }, // Increased file limit to 100MB for large XML files
     fileFilter: function (req, file, cb) {
         checkFileType(file, cb);
     }
