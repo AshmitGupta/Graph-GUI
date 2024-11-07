@@ -61,12 +61,7 @@
             border: 2px dashed #007BFF;
             padding: 30px;
             border-radius: 10px;
-            transition: background-color 0.3s;
             cursor: pointer;
-        }
-
-        .upload-area.dragging {
-            background-color: #e2f2ff;
         }
 
         .upload-area p {
@@ -96,56 +91,6 @@
             background-color: #218838;
         }
 
-        /* Flash Message */
-        .flash-message {
-            margin-top: 20px;
-            color: #28a745;
-        }
-
-        /* Preview Box */
-        .preview-box {
-            margin-top: 20px;
-            border: 1px solid #ddd;
-            padding: 10px;
-            max-height: 200px;
-            overflow-y: auto;
-            text-align: left;
-            background-color: #f9f9f9;
-        }
-
-        /* Progress Bar */
-        .progress-container {
-            margin-top: 20px;
-            text-align: center;
-        }
-
-        progress {
-            width: 100%;
-            height: 20px;
-            -webkit-appearance: none;
-            appearance: none;
-        }
-
-        progress::-webkit-progress-bar {
-            background-color: #f3f3f3;
-            border-radius: 5px;
-        }
-
-        progress::-webkit-progress-value {
-            background-color: #007BFF;
-            border-radius: 5px;
-        }
-
-        progress::-moz-progress-bar {
-            background-color: #007BFF;
-            border-radius: 5px;
-        }
-
-        .progress-text {
-            margin-top: 10px;
-            color: #555;
-        }
-
         /* Log Messages */
         .log-messages {
             margin-top: 0;
@@ -161,31 +106,6 @@
 
         .log-messages p {
             margin: 0;
-        }
-
-        /* Input Field for Registration */
-        .input-field {
-            margin-top: 20px;
-            display: flex;
-            flex-direction: column;
-            align-items: flex-start;
-        }
-
-        .input-field label {
-            margin-bottom: 5px;
-            color: #555;
-        }
-
-        .input-field input {
-            width: 100%;
-            padding: 8px;
-            border: 1px solid #ccc;
-            border-radius: 5px;
-        }
-
-        .input-field input:focus {
-            outline: none;
-            border-color: #007BFF;
         }
     </style>
 </head>
@@ -213,16 +133,6 @@
 
                 <button type="submit" class="submit-btn">Upload</button>
             </form>
-
-            <div class="progress-container" style="display: none;">
-                <progress id="progressBar" value="0" max="100"></progress>
-                <p id="progressText" class="progress-text">Processing: 0%</p>
-            </div>
-
-            <div class="preview-box" id="previewBox" style="display: none;">
-                <h4>File Preview:</h4>
-                <pre id="filePreview"></pre>
-            </div>
         </div>
 
         <!-- Log Messages Container -->
@@ -239,13 +149,7 @@
         const uploadArea = document.getElementById('uploadArea');
         const fileInput = document.getElementById('fileInput');
         const fileNameDiv = document.getElementById('fileName');
-        const previewBox = document.getElementById('previewBox');
-        const filePreview = document.getElementById('filePreview');
         const logMessagesDiv = document.getElementById('logMessages');
-        const progressContainer = document.querySelector('.progress-container');
-        const progressBar = document.getElementById('progressBar');
-        const progressText = document.getElementById('progressText');
-        const uploadForm = document.getElementById('uploadForm');
         const socketIdInput = document.getElementById('socketId');
 
         // Establish Socket.IO connection
@@ -254,19 +158,6 @@
         socket.on('connect', () => {
             console.log('Connected with socket ID:', socket.id);
             socketIdInput.value = socket.id; // Set socket ID in the hidden input
-        });
-
-        socket.on('progress', (data) => {
-            const progress = data.progress;
-            progressBar.value = progress;
-            progressText.textContent = `Processing: ${progress}%`;
-
-            if (progress >= 100) {
-                progressText.textContent = `Processing complete!`;
-                setTimeout(() => {
-                    progressContainer.style.display = 'none';
-                }, 2000);
-            }
         });
 
         socket.on('log', (message) => {
@@ -282,56 +173,6 @@
             const file = fileInput.files[0];
             const fileName = file.name;
             fileNameDiv.textContent = `Selected file: ${fileName}`;
-
-            if (file && file.type === "text/xml") {
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    const fileContent = e.target.result;
-                    filePreview.textContent = fileContent;
-                    previewBox.style.display = 'block';
-                };
-                reader.readAsText(file);
-            } else {
-                previewBox.style.display = 'none';
-            }
-        });
-
-        uploadArea.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            uploadArea.classList.add('dragging');
-        });
-
-        uploadArea.addEventListener('dragleave', () => {
-            uploadArea.classList.remove('dragging');
-        });
-
-        uploadArea.addEventListener('drop', (e) => {
-            e.preventDefault();
-            uploadArea.classList.remove('dragging');
-            const files = e.dataTransfer.files;
-            fileInput.files = files;
-            const file = files[0];
-            const fileName = file.name;
-            fileNameDiv.textContent = `Selected file: ${fileName}`;
-
-            if (file && file.type === "text/xml") {
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    const fileContent = e.target.result;
-                    filePreview.textContent = fileContent;
-                    previewBox.style.display = 'block';
-                };
-                reader.readAsText(file);
-            } else {
-                previewBox.style.display = 'none';
-            }
-        });
-
-        uploadForm.addEventListener('submit', (e) => {
-            progressContainer.style.display = 'block';
-            progressBar.value = 0;
-            progressText.textContent = 'Processing: 0%';
-            logMessagesDiv.innerHTML = ''; // Clear previous log messages
         });
     </script>
 </body>
