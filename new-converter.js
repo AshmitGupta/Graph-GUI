@@ -1,38 +1,172 @@
+// new-converter.js
 const neo4j = require('neo4j-driver');
 const xml2js = require('xml2js');
 
-async function createGraphFromXML(xmlData, registration, driver, logCallback) {
+async function createGraphFromXML(xmlData, registration, driver) {
+    const logs = [];
+
+    function logMessage(message) {
+        console.log(message);
+        logs.push(message);
+    }
+
+    const processedNodes = new Set();
     const session = driver.session();
+
     const uniqueLabel = 'Batch_' + new Date().toISOString().slice(0, 10).replace(/-/g, '_');
 
     try {
         const parser = new xml2js.Parser({ explicitArray: false, trim: true });
         const result = await parser.parseStringPromise(xmlData);
 
-        let docNumber = result.AirplaneSB?.$?.docnbr || 'ServiceBulletin';
-        logCallback(`Found docnbr: ${docNumber}`);
+        let docNumber = 'ServiceBulletin';
+        if (result && result.AirplaneSB && result.AirplaneSB.$ && result.AirplaneSB.$.docnbr) {
+            docNumber = result.AirplaneSB.$.docnbr;
+            logMessage(`Found docnbr: ${docNumber}`);
+        } else {
+            logMessage('No docnbr attribute found; defaulting to "ServiceBulletin"');
+        }
 
-        // Create Service Bulletin node
-        logCallback(`Creating Service Bulletin node with docnbr "${docNumber}"`);
+        logMessage(`Creating Service Bulletin node with docnbr "${docNumber}" and label "${uniqueLabel}"`);
         await session.writeTransaction(tx => tx.run(
             `MERGE (sb:ServiceBulletin:\`${uniqueLabel}\` {name: $docnbr, content: '000', docnbr: $docnbr})`,
             { docnbr: docNumber }
         ));
-        logCallback('Service Bulletin node created.');
+        logMessage('Service Bulletin node created.');
 
-        // Connect to Aircraft node based on registration
-        logCallback(`Using registration: "${registration}"`);
+        // Use the registration provided by the user
+        logMessage(`Using registration: "${registration}"`);
+
+        // Connect the Service Bulletin to the matching Aircraft node
         await session.writeTransaction(tx => tx.run(
             `MATCH (sb:ServiceBulletin {docnbr: $docnbr}), (ac:Aircraft {registration: $registration})
             MERGE (sb)-[:APPLIES_TO]->(ac)`,
             { docnbr: docNumber, registration: registration }
         ));
-        logCallback(`Connected Service Bulletin "${docNumber}" to Aircraft with registration "${registration}".`);
+        logMessage(`Connected Service Bulletin "${docNumber}" to Aircraft with registration "${registration}".`);
 
-        // Additional logic for parsing XML and creating other nodes
-        logCallback('Graph created successfully with docnbr property: ' + docNumber);
+        function sanitizeRelationship(label) {
+            return label.replace(/[^a-zA-Z0-9]/g, '_').toUpperCase();
+        }
+
+        function formatNodeLabel(label) {
+            return label
+                .replace(/^HAS_/, '')
+                .toLowerCase()
+                .split('_')
+                .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                .join('_');
+        }
+
+        function gatherContent(node) {
+            let content = '';
+
+            function handleTableNode(tableNode) {
+                const builder = new xml2js.Builder({ headless: true, renderOpts: { pretty: false }, xmldec: { version: '1.0', encoding: 'UTF-8' } });
+
+                const sanitizedTable = JSON.parse(JSON.stringify(tableNode, (key, value) => (key.startsWith('$') ? undefined : value)));
+
+                if (sanitizedTable.TABLE && Array.isArray(sanitizedTable.TABLE.ColSpec)) {
+                    delete sanitizedTable.TABLE.ColSpec;
+                }
+
+                return builder.buildObject({ TABLE: sanitizedTable.TABLE }).trim();
+            }
+
+            for (const key in node) {
+                if (node.hasOwnProperty(key)) {
+                    if (key.toUpperCase() === 'TABLE') {
+                        content += handleTableNode({ TABLE: node[key] });
+                    } else if (typeof node[key] === 'string' && !key.startsWith('$')) {
+                        content += node[key] + ' ';
+                    } else if (typeof node[key] === 'object' && !key.startsWith('$')) {
+                        content += gatherContent(node[key]);
+                    }
+                }
+            }
+
+            return content.trim();
+        }
+
+        async function createTitleNodesAndRelationships(parentTitleNode, parentNodeLabel, obj) {
+            for (const key in obj) {
+                if (obj.hasOwnProperty(key)) {
+                    if (key.toUpperCase() === 'TITLE') {
+                        const titleContent = obj[key];
+                        const sanitizedRelationship = sanitizeRelationship(titleContent);
+                        const titleNodeLabel = formatNodeLabel(sanitizedRelationship);
+                        const nodeName = titleNodeLabel;
+
+                        logMessage(`Gathering content for "${titleNodeLabel}"`);
+                        const concatenatedContent = gatherContent(obj);
+
+                        const uniqueKey = `${nodeName}-${concatenatedContent.trim()}`;
+                        if (processedNodes.has(uniqueKey)) {
+                            logMessage(`Node "${titleNodeLabel}" with content already processed, skipping.`);
+                            continue;
+                        }
+
+                        processedNodes.add(uniqueKey);
+
+                        logMessage(`Creating TITLE node for "${titleNodeLabel}" with label "${uniqueLabel}"`);
+                        await session.writeTransaction(tx => tx.run(
+                            `MERGE (n:\`${titleNodeLabel}\`:\`${uniqueLabel}\` {name: $name, docnbr: $docnbr})`,
+                            { name: nodeName, docnbr: docNumber }
+                        ));
+                        logMessage(`TITLE node "${titleNodeLabel}" created.`);
+
+                        if (!parentTitleNode) {
+                            logMessage(`Connecting TITLE "${titleNodeLabel}" to Service Bulletin`);
+                            await session.writeTransaction(tx => tx.run(
+                                `MATCH (sb:ServiceBulletin:\`${uniqueLabel}\` {docnbr: $sbDocNbr}), (child:\`${titleNodeLabel}\`:\`${uniqueLabel}\` {name: $childName, docnbr: $docnbr})
+                                MERGE (sb)-[:HAS_${sanitizedRelationship}]->(child)`,
+                                { sbDocNbr: docNumber, childName: nodeName, docnbr: docNumber }
+                            ));
+                            logMessage(`Connected "${titleNodeLabel}" to Service Bulletin.`);
+                        } else {
+                            const dynamicRelationship = `HAS_${sanitizedRelationship}`;
+                            logMessage(`Connecting TITLE "${parentNodeLabel}" to child TITLE "${titleNodeLabel}" with relationship "${dynamicRelationship}"`);
+                            await session.writeTransaction(tx => tx.run(
+                                `MATCH (parent:\`${parentNodeLabel}\`:\`${uniqueLabel}\` {name: $parentName, docnbr: $docnbr}), (child:\`${titleNodeLabel}\`:\`${uniqueLabel}\` {name: $childName, docnbr: $docnbr})
+                                MERGE (parent)-[:${dynamicRelationship}]->(child)`,
+                                { parentName: parentNodeLabel, childName: nodeName, docnbr: docNumber }
+                            ));
+                            logMessage(`Connected "${parentNodeLabel}" to "${titleNodeLabel}" with "${dynamicRelationship}".`);
+                        }
+
+                        const cleanedContent = concatenatedContent.replace(/<ColSpec\s*\/>/g, '');
+
+                        logMessage(`Content for "${titleNodeLabel}" gathered: "${cleanedContent}"`);
+                        await session.writeTransaction(tx => tx.run(
+                            `MATCH (n:\`${titleNodeLabel}\`:\`${uniqueLabel}\` {name: $name, docnbr: $docnbr})
+                            SET n.content = $content`,
+                            { name: nodeName, content: cleanedContent, docnbr: docNumber }
+                        ));
+                        logMessage(`Updated content for "${titleNodeLabel}".`);
+
+                        logMessage(`Processing nested content for "${titleNodeLabel}"...`);
+                        await createTitleNodesAndRelationships(titleNodeLabel, titleNodeLabel, obj);
+                    }
+
+                    if (typeof obj[key] === 'object' && key.toUpperCase() !== 'TITLE') {
+                        await createTitleNodesAndRelationships(parentTitleNode, parentNodeLabel, obj[key]);
+                    }
+                }
+            }
+        }
+
+        logMessage('Starting graph creation process...');
+        const rootKey = Object.keys(result)[0];
+        const rootObj = result[rootKey];
+
+        // Begin processing
+        await createTitleNodesAndRelationships(null, null, rootObj);
+
+        logMessage('Graph created successfully with docnbr property: ' + docNumber);
+
+        return logs;
     } catch (error) {
-        logCallback('Error creating graph: ' + error);
+        logMessage('Error creating graph: ' + error);
         throw error;
     } finally {
         await session.close();
