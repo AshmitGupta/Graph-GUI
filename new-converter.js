@@ -1,201 +1,157 @@
-// new-converter.js
-const neo4j = require('neo4j-driver');
-const xml2js = require('xml2js');
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>XML File Upload</title>
+    <style>
+        /* Styles for layout, upload form, and progress */
+        /* ... Your CSS styles as defined in the previous code */
+    </style>
+</head>
+<body>
+    <div class="main-container">
+        <!-- Upload Form Container -->
+        <div class="upload-container">
+            <h1>Upload your XML File</h1>
+            <% if (typeof msg !== 'undefined') { %>
+                <p class="flash-message"><%= msg %></p>
+            <% } %>
+            <form id="uploadForm" action="/upload" method="POST" enctype="multipart/form-data">
+                <input type="hidden" name="socketId" id="socketId"> <!-- Hidden input for socket ID -->
+                <input type="file" name="file" id="fileInput" class="file-input" accept=".xml">
+                <div class="upload-area" id="uploadArea">
+                    <p>Drag & drop your file here or click to browse</p>
+                </div>
+                <div id="fileName" class="file-name"></div>
 
-async function createGraphFromXML(xmlData, registration, driver, logCallback, progressCallback) {
-    const processedNodes = new Set();
-    const session = driver.session();
+                <!-- Registration Input Field -->
+                <div class="input-field">
+                    <label for="registration">Aircraft Registration:</label>
+                    <input type="text" name="registration" id="registration" required placeholder="Enter registration">
+                </div>
 
-    const uniqueLabel = 'Batch_' + new Date().toISOString().slice(0, 10).replace(/-/g, '_');
+                <button type="submit" class="submit-btn">Upload</button>
+            </form>
 
-    try {
-        const parser = new xml2js.Parser({ explicitArray: false, trim: true });
-        const result = await parser.parseStringPromise(xmlData);
+            <div class="progress-container" style="display: none;">
+                <progress id="progressBar" value="0" max="100"></progress>
+                <p id="progressText" class="progress-text">Processing: 0%</p>
+            </div>
 
-        let docNumber = 'ServiceBulletin';
-        if (result && result.AirplaneSB && result.AirplaneSB.$ && result.AirplaneSB.$.docnbr) {
-            docNumber = result.AirplaneSB.$.docnbr;
-            logCallback(`Found docnbr: ${docNumber}`);
-        } else {
-            logCallback('No docnbr attribute found; defaulting to "ServiceBulletin"');
-        }
+            <div class="preview-box" id="previewBox" style="display: none;">
+                <h4>File Preview:</h4>
+                <pre id="filePreview"></pre>
+            </div>
+        </div>
 
-        logCallback(`Creating Service Bulletin node with docnbr "${docNumber}" and label "${uniqueLabel}"`);
-        await session.writeTransaction(tx => tx.run(
-            `MERGE (sb:ServiceBulletin:\`${uniqueLabel}\` {name: $docnbr, content: '000', docnbr: $docnbr})`,
-            { docnbr: docNumber }
-        ));
-        logCallback('Service Bulletin node created.');
+        <!-- Log Messages Container -->
+        <div class="log-container">
+            <h1>Log Messages</h1>
+            <div id="logMessages" class="log-messages"></div>
+        </div>
+    </div>
 
-        // Use the registration provided by the user
-        logCallback(`Using registration: "${registration}"`);
+    <!-- Include Socket.IO client library -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        // JavaScript code
+        const uploadArea = document.getElementById('uploadArea');
+        const fileInput = document.getElementById('fileInput');
+        const fileNameDiv = document.getElementById('fileName');
+        const previewBox = document.getElementById('previewBox');
+        const filePreview = document.getElementById('filePreview');
+        const logMessagesDiv = document.getElementById('logMessages');
+        const progressContainer = document.querySelector('.progress-container');
+        const progressBar = document.getElementById('progressBar');
+        const progressText = document.getElementById('progressText');
+        const uploadForm = document.getElementById('uploadForm');
+        const socketIdInput = document.getElementById('socketId');
 
-        // Connect the Service Bulletin to the matching Aircraft node
-        await session.writeTransaction(tx => tx.run(
-            `MATCH (sb:ServiceBulletin {docnbr: $docnbr}), (ac:Aircraft {registration: $registration})
-            MERGE (sb)-[:APPLIES_TO]->(ac)`,
-            { docnbr: docNumber, registration: registration }
-        ));
-        logCallback(`Connected Service Bulletin "${docNumber}" to Aircraft with registration "${registration}".`);
+        // Establish Socket.IO connection
+        const socket = io();
 
-        function sanitizeRelationship(label) {
-            return label.replace(/[^a-zA-Z0-9]/g, '_').toUpperCase();
-        }
+        socket.on('connect', () => {
+            console.log('Connected with socket ID:', socket.id);
+            socketIdInput.value = socket.id; // Set socket ID in the hidden input
+        });
 
-        function formatNodeLabel(label) {
-            return label
-                .replace(/^HAS_/, '')
-                .toLowerCase()
-                .split('_')
-                .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-                .join('_');
-        }
+        socket.on('progress', (data) => {
+            const progress = data.progress;
+            progressBar.value = progress;
+            progressText.textContent = `Processing: ${progress}%`;
 
-        function gatherContent(node) {
-            let content = '';
-
-            function handleTableNode(tableNode) {
-                const builder = new xml2js.Builder({ headless: true, renderOpts: { pretty: false }, xmldec: { version: '1.0', encoding: 'UTF-8' } });
-
-                const sanitizedTable = JSON.parse(JSON.stringify(tableNode, (key, value) => (key.startsWith('$') ? undefined : value)));
-
-                if (sanitizedTable.TABLE && Array.isArray(sanitizedTable.TABLE.ColSpec)) {
-                    delete sanitizedTable.TABLE.ColSpec;
-                }
-
-                return builder.buildObject({ TABLE: sanitizedTable.TABLE }).trim();
+            if (progress >= 100) {
+                progressText.textContent = `Processing complete!`;
+                setTimeout(() => {
+                    progressContainer.style.display = 'none';
+                }, 2000);
             }
+        });
 
-            for (const key in node) {
-                if (node.hasOwnProperty(key)) {
-                    if (key.toUpperCase() === 'TABLE') {
-                        content += handleTableNode({ TABLE: node[key] });
-                    } else if (typeof node[key] === 'string' && !key.startsWith('$')) {
-                        content += node[key] + ' ';
-                    } else if (typeof node[key] === 'object' && !key.startsWith('$')) {
-                        content += gatherContent(node[key]);
-                    }
-                }
+        socket.on('log', (message) => {
+            const p = document.createElement('p');
+            p.textContent = message;
+            logMessagesDiv.appendChild(p);
+            logMessagesDiv.scrollTop = logMessagesDiv.scrollHeight; // Auto-scroll to the bottom
+        });
+
+        uploadArea.addEventListener('click', () => fileInput.click());
+
+        fileInput.addEventListener('change', () => {
+            const file = fileInput.files[0];
+            const fileName = file.name;
+            fileNameDiv.textContent = `Selected file: ${fileName}`;
+
+            if (file && file.type === "text/xml") {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const fileContent = e.target.result;
+                    filePreview.textContent = fileContent;
+                    previewBox.style.display = 'block';
+                };
+                reader.readAsText(file);
+            } else {
+                previewBox.style.display = 'none';
             }
+        });
 
-            return content.trim();
-        }
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadArea.classList.add('dragging');
+        });
 
-        // Variables for progress tracking
-        let totalNodes = 0;
-        let processedNodesCount = 0;
+        uploadArea.addEventListener('dragleave', () => {
+            uploadArea.classList.remove('dragging');
+        });
 
-        // Function to count total nodes to process
-        function countTotalNodes(obj) {
-            let count = 0;
-            for (const key in obj) {
-                if (obj.hasOwnProperty(key)) {
-                    if (key.toUpperCase() === 'TITLE') {
-                        count += 1;
-                    }
-                    if (typeof obj[key] === 'object') {
-                        count += countTotalNodes(obj[key]);
-                    }
-                }
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadArea.classList.remove('dragging');
+            const files = e.dataTransfer.files;
+            fileInput.files = files;
+            const file = files[0];
+            const fileName = file.name;
+            fileNameDiv.textContent = `Selected file: ${fileName}`;
+
+            if (file && file.type === "text/xml") {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const fileContent = e.target.result;
+                    filePreview.textContent = fileContent;
+                    previewBox.style.display = 'block';
+                };
+                reader.readAsText(file);
+            } else {
+                previewBox.style.display = 'none';
             }
-            return count;
-        }
+        });
 
-        // Count total nodes before processing
-        totalNodes = countTotalNodes(result);
-        if (totalNodes === 0) {
-            totalNodes = 1; // Prevent division by zero
-        }
-
-        async function createTitleNodesAndRelationships(parentTitleNode, parentNodeLabel, obj) {
-            for (const key in obj) {
-                if (obj.hasOwnProperty(key)) {
-                    if (key.toUpperCase() === 'TITLE') {
-                        const titleContent = obj[key];
-                        const sanitizedRelationship = sanitizeRelationship(titleContent);
-                        const titleNodeLabel = formatNodeLabel(sanitizedRelationship);
-                        const nodeName = titleNodeLabel;
-
-                        logCallback(`Gathering content for "${titleNodeLabel}"`);
-                        const concatenatedContent = gatherContent(obj);
-
-                        const uniqueKey = `${nodeName}-${concatenatedContent.trim()}`;
-                        if (processedNodes.has(uniqueKey)) {
-                            logCallback(`Node "${titleNodeLabel}" with content already processed, skipping.`);
-                            continue;
-                        }
-
-                        processedNodes.add(uniqueKey);
-
-                        logCallback(`Creating TITLE node for "${titleNodeLabel}" with label "${uniqueLabel}"`);
-                        await session.writeTransaction(tx => tx.run(
-                            `MERGE (n:\`${titleNodeLabel}\`:\`${uniqueLabel}\` {name: $name, docnbr: $docnbr})`,
-                            { name: nodeName, docnbr: docNumber }
-                        ));
-                        logCallback(`TITLE node "${titleNodeLabel}" created.`);
-
-                        if (!parentTitleNode) {
-                            logCallback(`Connecting TITLE "${titleNodeLabel}" to Service Bulletin`);
-                            await session.writeTransaction(tx => tx.run(
-                                `MATCH (sb:ServiceBulletin:\`${uniqueLabel}\` {docnbr: $sbDocNbr}), (child:\`${titleNodeLabel}\`:\`${uniqueLabel}\` {name: $childName, docnbr: $docnbr})
-                                MERGE (sb)-[:HAS_${sanitizedRelationship}]->(child)`,
-                                { sbDocNbr: docNumber, childName: nodeName, docnbr: docNumber }
-                            ));
-                            logCallback(`Connected "${titleNodeLabel}" to Service Bulletin.`);
-                        } else {
-                            const dynamicRelationship = `HAS_${sanitizedRelationship}`;
-                            logCallback(`Connecting TITLE "${parentNodeLabel}" to child TITLE "${titleNodeLabel}" with relationship "${dynamicRelationship}"`);
-                            await session.writeTransaction(tx => tx.run(
-                                `MATCH (parent:\`${parentNodeLabel}\`:\`${uniqueLabel}\` {name: $parentName, docnbr: $docnbr}), (child:\`${titleNodeLabel}\`:\`${uniqueLabel}\` {name: $childName, docnbr: $docnbr})
-                                MERGE (parent)-[:${dynamicRelationship}]->(child)`,
-                                { parentName: parentNodeLabel, childName: nodeName, docnbr: docNumber }
-                            ));
-                            logCallback(`Connected "${parentNodeLabel}" to "${titleNodeLabel}" with "${dynamicRelationship}".`);
-                        }
-
-                        const cleanedContent = concatenatedContent.replace(/<ColSpec\s*\/>/g, '');
-
-                        logCallback(`Content for "${titleNodeLabel}" gathered: "${cleanedContent}"`);
-                        await session.writeTransaction(tx => tx.run(
-                            `MATCH (n:\`${titleNodeLabel}\`:\`${uniqueLabel}\` {name: $name, docnbr: $docnbr})
-                            SET n.content = $content`,
-                            { name: nodeName, content: cleanedContent, docnbr: docNumber }
-                        ));
-                        logCallback(`Updated content for "${titleNodeLabel}".`);
-
-                        // Update processed nodes count and emit progress
-                        processedNodesCount += 1;
-                        const progress = Math.round((processedNodesCount / totalNodes) * 100);
-                        progressCallback(progress);
-
-                        logCallback(`Processing nested content for "${titleNodeLabel}"...`);
-                        await createTitleNodesAndRelationships(titleNodeLabel, titleNodeLabel, obj);
-                    }
-
-                    if (typeof obj[key] === 'object' && key.toUpperCase() !== 'TITLE') {
-                        await createTitleNodesAndRelationships(parentTitleNode, parentNodeLabel, obj[key]);
-                    }
-                }
-            }
-        }
-
-        logCallback('Starting graph creation process...');
-        const rootKey = Object.keys(result)[0];
-        const rootObj = result[rootKey];
-
-        // Begin processing
-        await createTitleNodesAndRelationships(null, null, rootObj);
-
-        logCallback('Graph created successfully with docnbr property: ' + docNumber);
-
-        // Emit 100% progress when done
-        progressCallback(100);
-    } catch (error) {
-        logCallback('Error creating graph: ' + error);
-        throw error;
-    } finally {
-        await session.close();
-    }
-}
-
-module.exports = { createGraphFromXML };
+        uploadForm.addEventListener('submit', (e) => {
+            progressContainer.style.display = 'block';
+            progressBar.value = 0;
+            progressText.textContent = 'Processing: 0%';
+            logMessagesDiv.innerHTML = ''; // Clear previous log messages
+        });
+    </script>
+</body>
+</html>
