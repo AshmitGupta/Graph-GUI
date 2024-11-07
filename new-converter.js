@@ -1,3 +1,4 @@
+// new-converter.js
 const neo4j = require('neo4j-driver');
 const xml2js = require('xml2js');
 
@@ -9,10 +10,10 @@ function logMessage(message, socket = null) {
     }
 }
 
-// Set to keep track of processed nodes to avoid duplicate creation/connection
-const processedNodes = new Set();
-
 async function createGraphFromXML(xmlData, socket, registration, driver) {
+    // Set to keep track of processed nodes to avoid duplicate creation/connection
+    const processedNodes = new Set();
+
     const session = driver.session();
 
     const uniqueLabel = 'Batch_' + new Date().toISOString().slice(0, 10).replace(/-/g, '_');
@@ -90,6 +91,32 @@ async function createGraphFromXML(xmlData, socket, registration, driver) {
             return content.trim();
         }
 
+        // Variables for progress tracking
+        let totalNodes = 0;
+        let processedNodesCount = 0;
+
+        // Function to count total nodes to process
+        function countTotalNodes(obj) {
+            let count = 0;
+            for (const key in obj) {
+                if (obj.hasOwnProperty(key)) {
+                    if (key.toUpperCase() === 'TITLE') {
+                        count += 1;
+                    }
+                    if (typeof obj[key] === 'object') {
+                        count += countTotalNodes(obj[key]);
+                    }
+                }
+            }
+            return count;
+        }
+
+        // Count total nodes before processing
+        totalNodes = countTotalNodes(result);
+        if (totalNodes === 0) {
+            totalNodes = 1; // Prevent division by zero
+        }
+
         async function createTitleNodesAndRelationships(parentTitleNode, parentNodeLabel, obj) {
             for (const key in obj) {
                 if (obj.hasOwnProperty(key)) {
@@ -146,6 +173,11 @@ async function createGraphFromXML(xmlData, socket, registration, driver) {
                         ));
                         logMessage(`Updated content for "${titleNodeLabel}".`, socket);
 
+                        // Update processed nodes count and emit progress
+                        processedNodesCount += 1;
+                        const progress = Math.round((processedNodesCount / totalNodes) * 100);
+                        socket.emit('progress', { progress });
+
                         logMessage(`Processing nested content for "${titleNodeLabel}"...`, socket);
                         await createTitleNodesAndRelationships(titleNodeLabel, titleNodeLabel, obj);
                     }
@@ -160,9 +192,14 @@ async function createGraphFromXML(xmlData, socket, registration, driver) {
         logMessage('Starting graph creation process...', socket);
         const rootKey = Object.keys(result)[0];
         const rootObj = result[rootKey];
+
+        // Begin processing
         await createTitleNodesAndRelationships(null, null, rootObj);
 
         logMessage('Graph created successfully with docnbr property: ' + docNumber, socket);
+
+        // Emit 100% progress when done
+        socket.emit('progress', { progress: 100 });
     } catch (error) {
         logMessage('Error creating graph: ' + error, socket);
         throw error;
