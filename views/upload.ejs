@@ -17,41 +17,23 @@
             margin: 0;
         }
 
-        /* Main container to hold both the upload form and log messages */
+        /* Main container to hold the upload form and status message */
         .main-container {
             display: flex;
+            flex-direction: column;
+            align-items: center;
             background-color: rgba(255, 255, 255, 0.95);
             border-radius: 15px;
             box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
-            width: 800px;
+            width: 500px;
             max-height: 90vh;
             overflow: hidden;
-        }
-
-        /* Upload form styles */
-        .upload-container {
             padding: 30px;
-            width: 50%;
-            overflow-y: auto;
             box-sizing: border-box;
         }
 
-        /* Log messages container styles */
-        .log-container {
-            padding: 30px;
-            width: 50%;
-            background-color: #2d2d2d;
-            color: #dcdcdc;
-            overflow-y: auto;
-            box-sizing: border-box;
-        }
-
-        .upload-container h1, .log-container h1 {
+        .main-container h1 {
             margin-top: 0;
-        }
-
-        .log-container h1 {
-            color: #fff;
         }
 
         .file-input {
@@ -64,6 +46,9 @@
             border-radius: 10px;
             transition: background-color 0.3s;
             cursor: pointer;
+            width: 100%;
+            text-align: center;
+            margin-bottom: 20px;
         }
 
         .upload-area.dragging {
@@ -101,68 +86,10 @@
             color: #28a745;
         }
 
-        .preview-box {
+        .status-message {
             margin-top: 20px;
-            border: 1px solid #ddd;
-            padding: 10px;
-            max-height: 200px;
-            overflow-y: auto;
-            text-align: left;
-            background-color: #f9f9f9;
-        }
-
-        .preview-box pre {
-            font-size: 12px;
-            color: #333;
-        }
-
-        .progress-container {
-            margin-top: 20px;
-            text-align: center;
-        }
-
-        progress {
-            width: 100%;
-            height: 20px;
-            -webkit-appearance: none;
-            appearance: none;
-        }
-
-        progress::-webkit-progress-bar {
-            background-color: #f3f3f3;
-            border-radius: 5px;
-        }
-
-        progress::-webkit-progress-value {
-            background-color: #007BFF;
-            border-radius: 5px;
-        }
-
-        progress::-moz-progress-bar {
-            background-color: #007BFF;
-            border-radius: 5px;
-        }
-
-        .progress-text {
-            margin-top: 10px;
             color: #555;
-        }
-
-        /* Log Messages Styles */
-        .log-messages {
-            margin-top: 0;
-            padding: 0;
-            max-height: 100%;
-            overflow-y: auto;
-            text-align: left;
-            font-family: Consolas, monospace;
-            font-size: 12px;
-            white-space: pre-wrap; /* Preserve formatting */
-            word-wrap: break-word; /* Break long words */
-        }
-
-        .log-messages p {
-            margin: 0;
+            font-weight: bold;
         }
 
         /* Registration input field styles */
@@ -171,6 +98,7 @@
             display: flex;
             flex-direction: column;
             align-items: flex-start;
+            width: 100%;
         }
 
         .input-field label {
@@ -193,98 +121,40 @@
 </head>
 <body>
     <div class="main-container">
-        <!-- Upload Form Container -->
-        <div class="upload-container">
-            <h1>Upload your XML File</h1>
-            <% if (typeof msg !== 'undefined') { %>
-                <p class="flash-message"><%= msg %></p>
-            <% } %>
-            <form id="uploadForm" action="/upload" method="POST" enctype="multipart/form-data">
-                <input type="hidden" name="clientId" id="clientId"> <!-- Hidden input for client ID -->
-                <input type="file" name="file" id="fileInput" class="file-input" accept=".xml">
-                <div class="upload-area" id="uploadArea">
-                    <p>Drag & drop your file here or click to browse</p>
-                </div>
-                <div id="fileName" class="file-name"></div>
+        <h1>Upload your XML File</h1>
+        <% if (typeof msg !== 'undefined') { %>
+            <p class="flash-message"><%= msg %></p>
+        <% } %>
+        <form id="uploadForm" action="/upload" method="POST" enctype="multipart/form-data">
+            <input type="file" name="file" id="fileInput" class="file-input" accept=".xml">
+            <div class="upload-area" id="uploadArea">
+                <p>Drag & drop your file here or click to browse</p>
+            </div>
+            <div id="fileName" class="file-name"></div>
 
-                <!-- Registration Input Field -->
-                <div class="input-field">
-                    <label for="registration">Aircraft Registration:</label>
-                    <input type="text" name="registration" id="registration" required placeholder="Enter registration">
-                </div>
-
-                <button type="submit" class="submit-btn">Upload</button>
-            </form>
-
-            <div class="progress-container" style="display: none;">
-                <progress id="progressBar" value="0" max="100"></progress>
-                <p id="progressText" class="progress-text">Processing: 0%</p>
+            <!-- Registration Input Field -->
+            <div class="input-field">
+                <label for="registration">Aircraft Registration:</label>
+                <input type="text" name="registration" id="registration" required placeholder="Enter registration">
             </div>
 
-            <div class="preview-box" id="previewBox" style="display: none;">
-                <h4>File Preview:</h4>
-                <pre id="filePreview"></pre>
-            </div>
-        </div>
+            <button type="submit" class="submit-btn">Upload</button>
+        </form>
 
-        <!-- Log Messages Container -->
-        <div class="log-container">
-            <h1>Log Messages</h1>
-            <div id="logMessages" class="log-messages">
-                <!-- Log messages will appear here -->
-            </div>
-        </div>
+        <div id="statusMessage" class="status-message"></div>
     </div>
 
     <!-- JavaScript code -->
     <script>
-        // Generate unique clientId
-        const clientId = Date.now() + '-' + Math.random().toString(36).substr(2, 9);
-        document.getElementById('clientId').value = clientId;
-
         const uploadArea = document.getElementById('uploadArea');
         const fileInput = document.getElementById('fileInput');
         const fileNameDiv = document.getElementById('fileName');
-        const previewBox = document.getElementById('previewBox');
-        const filePreview = document.getElementById('filePreview');
-        const logMessagesDiv = document.getElementById('logMessages');
-        const progressContainer = document.querySelector('.progress-container');
-        const progressBar = document.getElementById('progressBar');
-        const progressText = document.getElementById('progressText');
+        const statusMessageDiv = document.getElementById('statusMessage');
         const uploadForm = document.getElementById('uploadForm');
 
-        let pollingInterval;
-
-        function startPolling() {
-            pollingInterval = setInterval(() => {
-                fetch(`/progress/${clientId}`)
-                    .then(response => response.json())
-                    .then(data => {
-                        // Update logs
-                        data.logs.forEach(message => {
-                            const p = document.createElement('p');
-                            p.textContent = message;
-                            logMessagesDiv.appendChild(p);
-                            logMessagesDiv.scrollTop = logMessagesDiv.scrollHeight;
-                        });
-
-                        // Update progress
-                        progressBar.value = data.progress;
-                        progressText.textContent = `Processing: ${data.progress}%`;
-
-                        if (data.progress >= 100) {
-                            progressText.textContent = `Processing complete!`;
-                            setTimeout(() => {
-                                progressContainer.style.display = 'none';
-                            }, 2000);
-                            clearInterval(pollingInterval);
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Error fetching progress:', error);
-                    });
-            }, 2000); // Poll every 2 seconds
-        }
+        let statusMessages = ["Graph creation started", "Processing nodes", "Still processing...", "Almost done..."];
+        let statusIndex = 0;
+        let statusInterval;
 
         uploadArea.addEventListener('click', () => fileInput.click());
 
@@ -292,18 +162,6 @@
             const file = fileInput.files[0];
             const fileName = file.name;
             fileNameDiv.textContent = `Selected file: ${fileName}`;
-
-            if (file && file.type === "text/xml") {
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    const fileContent = e.target.result;
-                    filePreview.textContent = fileContent;
-                    previewBox.style.display = 'block';
-                };
-                reader.readAsText(file);
-            } else {
-                previewBox.style.display = 'none';
-            }
         });
 
         uploadArea.addEventListener('dragover', (e) => {
@@ -323,27 +181,28 @@
             const file = files[0];
             const fileName = file.name;
             fileNameDiv.textContent = `Selected file: ${fileName}`;
-
-            if (file && file.type === "text/xml") {
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    const fileContent = e.target.result;
-                    filePreview.textContent = fileContent;
-                    previewBox.style.display = 'block';
-                };
-                reader.readAsText(file);
-            } else {
-                previewBox.style.display = 'none';
-            }
         });
 
         uploadForm.addEventListener('submit', (e) => {
-            progressContainer.style.display = 'block';
-            progressBar.value = 0;
-            progressText.textContent = 'Processing: 0%';
-            logMessagesDiv.innerHTML = ''; // Clear previous log messages
-            startPolling(); // Start polling after form submission
+            // Start updating status messages
+            statusMessageDiv.textContent = statusMessages[statusIndex];
+            statusIndex = (statusIndex + 1) % statusMessages.length;
+            statusInterval = setInterval(() => {
+                statusMessageDiv.textContent = statusMessages[statusIndex];
+                statusIndex = (statusIndex + 1) % statusMessages.length;
+            }, 5000); // Change message every 5 seconds
         });
     </script>
+
+    <!-- Server-side rendering: if status is 'complete', show 'Graph creation complete' -->
+    <% if (status === 'complete') { %>
+        <script>
+            // Stop the interval and update the status message
+            if (typeof statusInterval !== 'undefined') {
+                clearInterval(statusInterval);
+            }
+            document.getElementById('statusMessage').textContent = 'Graph creation complete';
+        </script>
+    <% } %>
 </body>
 </html>
