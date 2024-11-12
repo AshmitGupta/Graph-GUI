@@ -200,7 +200,7 @@
                 <p class="flash-message"><%= msg %></p>
             <% } %>
             <form id="uploadForm" action="/upload" method="POST" enctype="multipart/form-data">
-                <input type="hidden" name="socketId" id="socketId"> <!-- Hidden input for socket ID -->
+                <input type="hidden" name="clientId" id="clientId"> <!-- Hidden input for client ID -->
                 <input type="file" name="file" id="fileInput" class="file-input" accept=".xml">
                 <div class="upload-area" id="uploadArea">
                     <p>Drag & drop your file here or click to browse</p>
@@ -236,10 +236,12 @@
         </div>
     </div>
 
-    <!-- Include Socket.IO client library -->
-    <script src="/socket.io/socket.io.js"></script>
+    <!-- JavaScript code -->
     <script>
-        // JavaScript code
+        // Generate unique clientId
+        const clientId = Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+        document.getElementById('clientId').value = clientId;
+
         const uploadArea = document.getElementById('uploadArea');
         const fileInput = document.getElementById('fileInput');
         const fileNameDiv = document.getElementById('fileName');
@@ -250,18 +252,21 @@
         const progressBar = document.getElementById('progressBar');
         const progressText = document.getElementById('progressText');
         const uploadForm = document.getElementById('uploadForm');
-        const socketIdInput = document.getElementById('socketId');
 
-        // Establish Socket.IO connection
-        const socket = io();
+        // Create EventSource for SSE
+        const eventSource = new EventSource(`/events/${clientId}`);
 
-        socket.on('connect', () => {
-            console.log('Connected with socket ID:', socket.id);
-            socketIdInput.value = socket.id; // Set socket ID in the hidden input
-        });
+        eventSource.onmessage = function(event) {
+            const message = event.data;
+            // Handle log messages
+            const p = document.createElement('p');
+            p.textContent = message;
+            logMessagesDiv.appendChild(p);
+            logMessagesDiv.scrollTop = logMessagesDiv.scrollHeight; // Auto-scroll to the bottom
+        };
 
-        socket.on('progress', (data) => {
-            const progress = data.progress;
+        eventSource.addEventListener('progress', function(event) {
+            const progress = event.data;
             progressBar.value = progress;
             progressText.textContent = `Processing: ${progress}%`;
 
@@ -273,11 +278,9 @@
             }
         });
 
-        socket.on('log', (message) => {
-            const p = document.createElement('p');
-            p.textContent = message;
-            logMessagesDiv.appendChild(p);
-            logMessagesDiv.scrollTop = logMessagesDiv.scrollHeight; // Auto-scroll to the bottom
+        eventSource.addEventListener('done', function(event) {
+            // Close the EventSource connection
+            eventSource.close();
         });
 
         uploadArea.addEventListener('click', () => fileInput.click());
