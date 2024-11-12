@@ -2,8 +2,7 @@
 const neo4j = require('neo4j-driver');
 const xml2js = require('xml2js');
 
-async function createGraphFromXML(xmlData, registration, driver, logMessage, clientId) {
-    // Rest of your code remains the same, but include 'clientId' in logMessage calls
+async function createGraphFromXML(xmlData, registration, driver, logMessage, clientId, clientData) {
     const processedNodes = new Set();
     const session = driver.session();
 
@@ -82,6 +81,32 @@ async function createGraphFromXML(xmlData, registration, driver, logMessage, cli
             return content.trim();
         }
 
+        // Variables for progress tracking
+        let totalNodes = 0;
+        let processedNodesCount = 0;
+
+        // Function to count total nodes to process
+        function countTotalNodes(obj) {
+            let count = 0;
+            for (const key in obj) {
+                if (obj.hasOwnProperty(key)) {
+                    if (key.toUpperCase() === 'TITLE') {
+                        count += 1;
+                    }
+                    if (typeof obj[key] === 'object') {
+                        count += countTotalNodes(obj[key]);
+                    }
+                }
+            }
+            return count;
+        }
+
+        // Count total nodes before processing
+        totalNodes = countTotalNodes(result);
+        if (totalNodes === 0) {
+            totalNodes = 1; // Prevent division by zero
+        }
+
         async function createTitleNodesAndRelationships(parentTitleNode, parentNodeLabel, obj) {
             for (const key in obj) {
                 if (obj.hasOwnProperty(key)) {
@@ -138,6 +163,14 @@ async function createGraphFromXML(xmlData, registration, driver, logMessage, cli
                         ));
                         logMessage(`Updated content for "${titleNodeLabel}".`, clientId);
 
+                        // Update processed nodes count and progress
+                        processedNodesCount += 1;
+                        const progress = Math.round((processedNodesCount / totalNodes) * 100);
+                        if (clientId && clientData.has(clientId)) {
+                            const data = clientData.get(clientId);
+                            data.progress = progress;
+                        }
+
                         logMessage(`Processing nested content for "${titleNodeLabel}"...`, clientId);
                         await createTitleNodesAndRelationships(titleNodeLabel, titleNodeLabel, obj);
                     }
@@ -158,11 +191,10 @@ async function createGraphFromXML(xmlData, registration, driver, logMessage, cli
 
         logMessage('Graph created successfully with docnbr property: ' + docNumber, clientId);
 
-        // Emit 100% progress when done
-        if (clientId && sseClients.has(clientId)) {
-            const res = sseClients.get(clientId);
-            res.write(`event: progress\ndata: 100\n\n`);
-            res.write(`event: done\ndata: Processing complete\n\n`);
+        // Set progress to 100% when done
+        if (clientId && clientData.has(clientId)) {
+            const data = clientData.get(clientId);
+            data.progress = 100;
         }
     } catch (error) {
         logMessage('Error creating graph: ' + error, clientId);
