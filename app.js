@@ -8,37 +8,17 @@ const neo4j = require('neo4j-driver');
 const app = express();
 const { createGraphFromXML } = require('./new-converter'); // Ensure you import the function
 
-const sseClients = new Map();
+// Map to store logs and progress for each client
+const clientData = new Map();
 
 // Function to add log messages
 function logMessage(message, clientId = null) {
     console.log(message); // Logs to the terminal
-    if (clientId && sseClients.has(clientId)) {
-        const res = sseClients.get(clientId);
-        res.write(`data: ${message}\n\n`);
+    if (clientId && clientData.has(clientId)) {
+        const data = clientData.get(clientId);
+        data.logs.push(message);
     }
 }
-
-// SSE Endpoint
-app.get('/events/:clientId', (req, res) => {
-    const clientId = req.params.clientId;
-    console.log(`Client connected for SSE: ${clientId}`);
-
-    res.set({
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive'
-    });
-    res.flushHeaders();
-    res.write('\n');
-
-    sseClients.set(clientId, res);
-
-    req.on('close', () => {
-        console.log(`Client ${clientId} disconnected from SSE`);
-        sseClients.delete(clientId);
-    });
-});
 
 // Neo4j Connection
 const driver = neo4j.driver(
@@ -93,6 +73,9 @@ app.post('/upload', (req, res) => {
         const clientId = req.body.clientId; // Retrieve client ID from the form
         const registration = req.body.registration; // Get registration from form input
 
+        // Initialize client data
+        clientData.set(clientId, { logs: [], progress: 0 });
+
         if (err) {
             logMessage(err, clientId);
             res.render('upload', { msg: err });
@@ -113,7 +96,7 @@ app.post('/upload', (req, res) => {
                     } else {
                         // Process the XML to Neo4j
                         try {
-                            await createGraphFromXML(data, registration, driver, logMessage, clientId);
+                            await createGraphFromXML(data, registration, driver, logMessage, clientId, clientData);
                             const msg = 'File Uploaded and Graph Created!';
                             logMessage(msg, clientId);
                             res.render('upload', { msg: msg, file: `uploads/${req.file.filename}` });
@@ -126,6 +109,22 @@ app.post('/upload', (req, res) => {
             }
         }
     });
+});
+
+// Endpoint to get progress and logs for a client
+app.get('/progress/:clientId', (req, res) => {
+    const clientId = req.params.clientId;
+    if (clientData.has(clientId)) {
+        const data = clientData.get(clientId);
+        res.json({
+            logs: data.logs,
+            progress: data.progress
+        });
+        // Clear logs after sending so we don't send them again
+        data.logs = [];
+    } else {
+        res.json({ logs: [], progress: 0 });
+    }
 });
 
 // Start server
